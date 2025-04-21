@@ -34,7 +34,23 @@
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
+          <string>com.googleusercontent.apps.406346985154-l62ljc6afmnsdhtbfmi5d8bu58j92ajv</string>
+        </array>
+      </dict>
+      <dict>
+        <key>CFBundleURLSchemes</key>
+        <array>
           <string>exp+vfd-dashboard-mobile</string>
+        </array>
+      </dict>
+      <dict>
+        <key>CFBundleTypeRole</key>
+        <string>None</string>
+        <key>CFBundleURLName</key>
+        <string>AzureAuth</string>
+        <key>CFBundleURLSchemes</key>
+        <array>
+            <string>com.zsombitech.vfddashboardmobile</string>
         </array>
       </dict>
     </array>
@@ -53,6 +69,8 @@
       <key>NSAllowsLocalNetworking</key>
       <true/>
     </dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Allow $(PRODUCT_NAME) to access your microphone</string>
     <key>NSUserActivityTypes</key>
     <array>
       <string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>
