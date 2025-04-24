@@ -11,6 +11,12 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen
+        name="call"
+        options={{
+          title: "",
+        }}
+      />
+      <Tabs.Screen
         name="index"
         options={{
           title: "",

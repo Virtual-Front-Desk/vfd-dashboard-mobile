@@ -12,7 +12,7 @@ export const callSlice = createSlice({
   name: "callSlice",
   initialState,
   reducers: {
-    setCallData: (state, action: PayloadAction<CallDataState>) => {
+    setCallData: (state, action: PayloadAction<any>) => {
       state.currentCall = action.payload;
     },
   },

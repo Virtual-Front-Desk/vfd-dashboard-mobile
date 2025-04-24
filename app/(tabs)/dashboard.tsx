@@ -17,9 +17,11 @@ import { getMe } from "../../api";
 import AnonymousImage from "@/assets/images/anonymous.png";
 import _ from "lodash";
 import { Audio } from "expo-av";
-import { Sound } from "expo-av/build/Audio";
+import moment from "moment-timezone";
 import { database } from "../../firebaseConfig";
-import { ref, get, onChildChanged, update, onChildAdded } from "firebase/database";
+import { ref, get, onChildChanged, update, onChildAdded, remove, onValue } from "firebase/database";
+import { useDispatch } from "react-redux";
+import { callSlice } from "@/store/reducers/appReducer";
 
 interface FirebaseCallObject {
     acsLink: string;
@@ -53,14 +55,21 @@ enum ReceptionistRoleType {
 }
 
 export default function TabDashboardScreen() {
+    const dispatch = useDispatch();
+
     const [isOnline, setIsOnline] = useState<boolean>(false);
     const [isAdmin, setIsAdmin] = useState<boolean>(false);
     const [startSecondCounter, setStartSecondCounter] = useState<boolean>(false);
+    const [IsEmailNotification, setIsEmailNotification] = useState<boolean>(false);
 
     const [userProfileImageUrl, setUserProfileImageUrl] = useState<string>("");
-    const [userName, setUserName] = useState<string>("");
+    const [userFirstName, setUserFirstName] = useState<string>("");
+    const [userLastName, setUserLastName] = useState<string>("");
     const [userId, setUserId] = useState<string>("");
     const [ownerId, setOwnerId] = useState<string>("");
+    const [userEmail, setUserEmail] = useState<string>("");
+    const [userSelectedDepartments, setUserSelectedDepartments] = useState<string>("");
+    const [userSelectedDwellings, setUserSelectedDwellings] = useState<string>("");
 
     const [queueArrayState, setQueueArrayState] = useState<FirebaseCallObject[]>(
         []
@@ -75,11 +84,12 @@ export default function TabDashboardScreen() {
         typeof setInterval
     > | null>(null);
     const [receptionists, setReceptionists] = useState<any>([]);
+    const [presenceInterval, setPresenceInterval] = useState<
+        ReturnType<typeof setInterval> | null
+    >(null);
 
     const queueArray = useRef<FirebaseCallObject[]>([]);
     const hangoutArray = useRef<FirebaseCallObject[]>([]);
-
-    const [sound, setSound] = useState<Sound | null>(null);
 
     useFocusEffect(
         useCallback(() => {
@@ -103,10 +113,23 @@ export default function TabDashboardScreen() {
                                 ? data.user.Auth0Id
                                 : `${data.user.id}`
                     );
-                    setUserName(data.user.FirstName + " " + data.user.LastName);
+                    setUserFirstName(data.user.FirstName);
+                    setUserLastName(data.user.LastName);
                     setUserProfileImageUrl(data.user.image ? data.user.image.Url : "");
                     setIsAdmin(data.user.Receptionists.length > 0);
                     setReceptionists(data.user.Receptionists);
+                    setIsEmailNotification(data.user.IsEmailNotification);
+                    setUserEmail(data.user.Email);
+                    setUserSelectedDepartments(
+                        data.user.Receptionists.length > 0
+                            ? data.user.Receptionists[0].SelectedDepartments
+                            : null
+                    );
+                    setUserSelectedDwellings(
+                        data.user.Receptionists.length > 0
+                            ? data.user.Receptionists[0].SelectedDwellings
+                            : null
+                    );
                 } else {
                     AsyncStorage.removeItem("token");
                     router.push("/");
@@ -370,33 +393,24 @@ export default function TabDashboardScreen() {
                 }
                 if (!ringingInterval) {
                     if (!isPaused) {
-                        if (!sound) {
-                            await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+                        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
 
-                            const { sound: playbackObject } = await Audio.Sound.createAsync(
-                                {
-                                    uri: "https://app.virtualfrontdesk.com/sound/notif_sustain.mp3",
-                                },
-                                { shouldPlay: true }
-                            );
+                        const { sound: playbackObject } = await Audio.Sound.createAsync(
+                            {
+                                uri: "https://app.virtualfrontdesk.com/sound/notif_sustain.mp3",
+                            },
+                            { shouldPlay: true }
+                        );
 
-                            await playbackObject.setVolumeAsync(1.0);
+                        await playbackObject.setVolumeAsync(1.0);
 
-                            await playbackObject.playAsync();
+                        await playbackObject.playAsync();
 
-                            setRingingInterval(
-                                setInterval(async () => {
-                                    await playbackObject.replayAsync();
-                                }, 4000)
-                            );
-                        } else {
-                            await sound.replayAsync();
-                            setRingingInterval(
-                                setInterval(async () => {
-                                    await sound.replayAsync();
-                                }, 4000)
-                            );
-                        }
+                        setRingingInterval(
+                            setInterval(async () => {
+                                await playbackObject.replayAsync();
+                            }, 4000)
+                        );
                     }
                 } else if (isPaused) {
                     clearInterval(ringingInterval);
@@ -411,7 +425,77 @@ export default function TabDashboardScreen() {
         };
 
         asyncFunction();
-    }, [queueArray.current, sound, ringingInterval]);
+    }, [queueArray.current, ringingInterval]);
+
+    useEffect(() => {
+        if (!userId || !ownerId) return;
+
+        const asyncCheck = async () => {
+            let queryPresence: ReturnType<typeof ref>;
+            if (receptionists && receptionists.length > 0) {
+                queryPresence = ref(
+                    database,
+                    `presences/${ownerId}/${userId}`
+                );
+            } else {
+                const queryCalls = ref(database, `calls/${ownerId}`);
+
+                onValue(queryCalls, (snapshot) => {
+                    snapshot.forEach((childSnapshot) => {
+                        const time = childSnapshot.val().startTime;
+                        const now = new Date().getTime();
+                        const diff = now - time;
+                        const days = diff / (1000 * 60 * 60 * 24);
+                        if (days > 3) {
+                            remove(ref(database, `calls/${ownerId}/${childSnapshot.key}`));
+                        }
+                    });
+                });
+
+                queryPresence = ref(
+                    database,
+                    `presences/${ownerId}/${userId}`
+                );
+            }
+
+            if (!presenceInterval) {
+                setPresenceInterval(
+                    setInterval(async () => {
+                        update(queryPresence, {
+                            firstName: userFirstName,
+                            lastName: userLastName,
+                            profilImg: userProfileImageUrl || null,
+                            selectedDwellings:
+                                userSelectedDwellings,
+                            selectedDepartments:
+                                userSelectedDepartments,
+                            id: userId,
+                            lastSeen: moment(new Date().getTime()).tz("America/New_York").valueOf(),
+                            emailNotification: IsEmailNotification ? userEmail : null,
+                        });
+                    }, 30000)
+                );
+            }
+
+            update(queryPresence, {
+                firstName: userFirstName,
+                lastName: userLastName,
+                profilImg: userProfileImageUrl || null,
+                selectedDwellings: userSelectedDwellings,
+                selectedDepartments: userSelectedDepartments,
+                id: userId,
+                lastSeen: moment(new Date().getTime()).tz("America/New_York").valueOf(),
+                emailNotification: IsEmailNotification ? userEmail : null,
+            });
+        };
+        asyncCheck();
+
+        return () => {
+            if (presenceInterval !== null) {
+                clearInterval(presenceInterval);
+            }
+        };
+    }, [ownerId, userId]);
 
     /*useEffect(() => {
       if (queueArray.current.length > 0 || hangoutArray.current.length > 0) {
@@ -465,7 +549,7 @@ export default function TabDashboardScreen() {
     const handleJoinCall = (data: FirebaseCallObject) => {
         if (!ownerId) return;
 
-        const receptionist = userName;
+        const receptionist = userFirstName + " " + userLastName;
 
         const callRef = ref(database, `/calls/${ownerId}/${data.key}`);
 
@@ -473,10 +557,10 @@ export default function TabDashboardScreen() {
             status: 2,
             receptionist: receptionist,
         });
-        /*
-    
-            dispatch(
-              callSlice.actions.setCurrentCall({
+
+
+        dispatch(
+            callSlice.actions.setCallData({
                 callKey: data.key,
                 dwellingId: data.dwellingId,
                 callLink: data.acsLink,
@@ -486,10 +570,11 @@ export default function TabDashboardScreen() {
                 stationCode: data.stationCode,
                 printerName: data.printerNamePdf,
                 stationId: data.stationId,
-              })
-            );
-    
-            router.push("/call");*/
+            })
+        );
+
+        // @ts-ignore
+        router.push("/call");
     };
 
     const handleCleanHangOutItem = (data: FirebaseCallObject) => {
@@ -530,7 +615,7 @@ export default function TabDashboardScreen() {
                         resizeMode="cover"
                     />
                     <Text style={styles.profileText}>
-                        {userName} {isAdmin ? "(Admin)" : ""}
+                        {userFirstName} {userLastName} {isAdmin ? "(Admin)" : ""}
                     </Text>
                 </View>
                 <TouchableOpacity onPress={handleLogOut}>
